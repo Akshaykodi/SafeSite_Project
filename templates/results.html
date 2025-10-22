@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SafeSite - Scan Results</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      background: linear-gradient(180deg,#030b17 0%, #06142b 100%);
+      color: #e6f4ff;
+      font-family: 'Inter', sans-serif;
+      padding: 30px;
+    }
+    .container-main { max-width: 1100px; margin: auto; }
+    .card-ghost {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+    }
+    .section-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 8px; }
+    .muted { color: #9ebedc; }
+    .kv { color: #fff; font-weight: 600; }
+    .gauge-wrap { width: 170px; height: 170px; margin: auto; }
+    .badge-miss { background:#dc2626; color:#fff; border-radius:8px; padding:.25rem .45rem; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="container-main">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h2 class="fw-bold">Scan Results</h2>
+        <div class="muted">Target: <span class="kv">{{ target }}</span></div>
+        <div class="muted">Scanned at: {{ scanned_at }}</div>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">← New Scan</a>
+        <a href="{{ url_for('download_report', filename=report_file) }}" class="btn btn-light btn-sm">Download JSON</a>
+      </div>
+    </div>
+
+    <div class="card-ghost">
+      <div class="row align-items-center">
+        <div class="col-md-8">
+          <div class="section-title">Overall Security Score</div>
+          {% if score >= 100 %}
+            <div class="kv text-success">🟢 Perfectly Secure ({{ score }}%)</div>
+          {% elif score > 80 %}
+            <div class="kv text-success">Excellent ({{ score }}%)</div>
+          {% elif score > 50 %}
+            <div class="kv text-warning">Moderate Risk ({{ score }}%)</div>
+          {% else %}
+            <div class="kv text-danger">High Risk ({{ score }}%)</div>
+          {% endif %}
+          <p class="muted mt-2">Note: This scanner performs safe, passive checks only.</p>
+        </div>
+        <div class="col-md-4 text-center">
+          <div class="gauge-wrap"><canvas id="gaugeCanvas"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-ghost">
+      <div class="section-title">SSL / TLS</div>
+      <ul class="list-unstyled">
+        <li><strong>SSL Valid:</strong> {{ 'Yes' if ssl_valid else 'No' }}</li>
+        <li><strong>HTTPS Supported:</strong> {{ 'Yes' if https_supported else 'No' }}</li>
+        <li><strong>Expires On:</strong> {{ ssl.expires_on or 'Unknown' }}</li>
+        <li><strong>Issuer:</strong> {{ ssl.issuer or 'Unknown' }}</li>
+      </ul>
+    </div>
+
+    <div class="card-ghost">
+      <div class="section-title">Security Headers</div>
+      <ul class="list-unstyled">
+        {% for key, value in headers.items() %}
+          <li class="border-bottom border-secondary py-2">
+            <strong>{{ key }}</strong> — 
+            {% if value == 'Not Found' %}
+              <span class="badge-miss">Missing</span>
+            {% elif value.startswith('Error:') %}
+              <span class="badge bg-warning text-dark">Fetch Error</span>
+            {% else %}
+              <span class="badge bg-success">Present</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card-ghost">
+      <div class="section-title">HTTP Methods</div>
+      {% if methods.unsafe_methods %}
+        <div class="muted">Unsafe Methods Found:</div>
+        {% for m in methods.unsafe_methods %}
+          <span class="badge bg-danger me-1">{{ m }}</span>
+        {% endfor %}
+      {% else %}
+        <div class="muted">All safe methods detected.</div>
+      {% endif %}
+    </div>
+
+    <div class="card-ghost">
+      <div class="section-title">Passive Content Analysis</div>
+      <div class="muted mb-2">Page length: {{ passive.page_length }}</div>
+
+      <div class="fw-semibold mt-3">SQLi Indicators</div>
+      <ul>
+        {% for i in passive.sqli_indicators %}
+          <li>{{ i.match }} — {{ i.where }}</li>
+        {% else %}
+          <li class="muted">No SQLi signs found.</li>
+        {% endfor %}
+      </ul>
+
+      <div class="fw-semibold mt-3">XSS Indicators</div>
+      <div class="muted">Inline scripts: {{ passive.xss_indicators.inline_scripts }}</div>
+      <div class="muted">Event handlers: {{ passive.xss_indicators.on_event_handlers }}</div>
+      <div class="muted mt-1">Dangerous JS:
+        {% if passive.xss_indicators.dangerous_js %}
+          {% for p in passive.xss_indicators.dangerous_js %}
+            <span class="badge bg-warning text-dark">{{ p }}</span>
+          {% endfor %}
+        {% else %}
+          None
+        {% endif %}
+      </div>
+
+      <div class="fw-semibold mt-3">CSRF Issues</div>
+      <ul>
+        {% for issue in passive.csrf_issues %}
+          <li>Form #{{ issue.form_index }} — action: {{ issue.action or 'N/A' }}</li>
+        {% else %}
+          <li class="muted">None detected.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="text-center muted mt-4">🛡️ Passive scan only — no exploitation attempted.</div>
+  </div>
+
+  <!-- Gauge -->
+  <script>
+    const score = {{ score }};
+    const ctx = document.getElementById('gaugeCanvas');
+    new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        datasets: [{
+          data: [score, 100 - score],
+          backgroundColor: [
+            score >= 90 ? '#16a34a' : (score >= 60 ? '#facc15' : '#dc2626'),
+            'rgba(255,255,255,0.08)'
+          ],
+          cutout: '70%',
+          borderWidth: 0
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        maintainAspectRatio: false
+      },
+      plugins: [{
+        id: 'centerText',
+        afterDraw(chart) {
+          const { ctx, chartArea: { left, right, top, bottom } } = chart;
+          ctx.save();
+          ctx.font = '700 22px Inter';
+          ctx.fillStyle = '#fff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(score + '%', (left + right)/2, (top + bottom)/2);
+        }
+      }]
+    });
+  </script>
+</body>
+</html>
